@@ -72,13 +72,25 @@ class DatabaseManager:
 
 
     def get_users(self):
-        return [x[0] for x in cur.fetchall()] 
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM users')
+            return [x[0] for x in cur.fetchall()] 
         
     def get_prize_img(self, prize_id):
-        return cur.fetchall()[0][0]
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT image FROM prizes WHERE prize_id=?', (prize_id,))
+            return cur.fetchall()[0][0]
 
     def get_random_prize(self):
-        return cur.fetchall()[0]
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM prizes WHERE used = 0 ORDER BY RANDOM()')
+            return cur.fetchall()[0]
     
   
 def hide_img(img_name):
@@ -91,6 +103,6 @@ def hide_img(img_name):
 if __name__ == '__main__':
     manager = DatabaseManager(DATABASE)
     manager.create_tables()
-    prizes_img = os.listdir('img')
+    prizes_img = os.listdir('D:\Kodland\python_course3\M4L1\M4L1\img')
     data = [(x,) for x in prizes_img]
     manager.add_prize(data)
