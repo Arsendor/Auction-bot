@@ -6,6 +6,7 @@ import threading
 import time
 from config import *
 import os
+from logic import create_collage
 
 # Устанавливаем рабочую директорию в папку, где лежит этот файл
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -94,6 +95,30 @@ def callback_query(call):
     else:
         bot.send_message(user_id, "К сожалению, ты не успел получить картинку! Попробуй в следующий раз!)")
 
+@bot.message_handler(commands=['get_my_score'])
+def get_my_score(message):
+    user_id = message.chat.id
+    all_images = os.listdir('img')
+    won = manager.get_winners_img(user_id)
+    won_set = {img[0] for img in won}
+
+    paths = [
+        f'img/{name}' if name in won_set else f'hidden_img/{name}'
+        for name in all_images
+    ]
+
+    collage = create_collage(paths)
+    if collage is None:
+        bot.send_message(user_id, "У вас пока нет ни одной картинки.")
+        return
+
+    path_to_file = f'collage_{user_id}.jpg'
+    cv2.imwrite(path_to_file, collage)
+
+    with open(path_to_file, 'rb') as photo:
+        bot.send_photo(user_id, photo, caption="Ваш коллаж достижений!")
+
+    os.remove(path_to_file)
 
 def polling_thread():
     bot.polling(none_stop=True)
