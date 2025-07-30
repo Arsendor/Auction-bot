@@ -25,7 +25,9 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS prizes (
                 prize_id INTEGER PRIMARY KEY,
                 image TEXT,
-                used INTEGER DEFAULT 0
+                used INTEGER DEFAULT 0,
+                retry_count INTEGER DEFAULT 0,
+                bonus_multiplier INTEGER DEFAULT 1
             )
         ''')
 
@@ -38,7 +40,18 @@ class DatabaseManager:
                 FOREIGN KEY(prize_id) REFERENCES prizes(prize_id)
             )
         ''')
-
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_balances (
+                    user_id INTEGER PRIMARY KEY,
+                    balance INTEGER DEFAULT 0,
+                    FOREIGN KEY(user_id) REFERENCES users(user_id)
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS admins (
+                    user_id INTEGER PRIMARY KEY
+                )
+            ''')
             conn.commit()
 
     def add_user(self, user_id, user_name):
@@ -50,10 +63,10 @@ class DatabaseManager:
     def add_prize(self, data):
         conn = sqlite3.connect(self.database)
         with conn:
-            conn.executemany('''INSERT INTO prizes (image) VALUES (?)''', data)
+            conn.executemany('''INSERT INTO prizes (image, bonus_multiplier) VALUES (?, ?)''', data)
             conn.commit()
 
-    def add_winner(self, user_id, prize_id):
+    def add_winner(self, user_id, prize_id, bonus_multiplier):
         win_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn = sqlite3.connect(self.database)
         with conn:
@@ -63,6 +76,8 @@ class DatabaseManager:
                 return 0
             else:
                 conn.execute('''INSERT INTO winners (user_id, prize_id, win_time) VALUES (?, ?, ?)''', (user_id, prize_id, win_time))
+                conn.execute('UPDATE user_balances SET balance = balance + ? WHERE user_id = ?', (10 * bonus_multiplier, user_id))
+                conn.execute('INSERT OR IGNORE INTO user_balances (user_id, balance) VALUES (?, ?)', (user_id, 10 * bonus_multiplier))
                 conn.commit()
                 return 1
 
@@ -73,6 +88,11 @@ class DatabaseManager:
             conn.execute('''UPDATE prizes SET used = 1 WHERE prize_id = ?''', (prize_id,))
             conn.commit()
 
+    def increment_retry_count(self, prize_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            conn.execute('UPDATE prizes SET retry_count = retry_count + 1 WHERE prize_id = ?', (prize_id,))
+            conn.commit()
 
     def get_users(self):
         conn = sqlite3.connect(self.database)
@@ -88,6 +108,13 @@ class DatabaseManager:
             cur.execute('SELECT image FROM prizes WHERE prize_id=?', (prize_id,))
             return cur.fetchall()[0][0]
 
+    def get_prize_bonus_multiplier(self, prize_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT bonus_multiplier FROM prizes WHERE prize_id = ?', (prize_id,))
+            return cur.fetchall()[0][0]
+        
     def get_random_prize(self):
         conn = sqlite3.connect(self.database)
         with conn:
@@ -97,9 +124,6 @@ class DatabaseManager:
             if not results:
                 return None
             return results[0]
-            
-
-        return results[0]
     
     def get_winners_count(self, prize_id):
         conn = sqlite3.connect(self.database)
@@ -125,9 +149,9 @@ class DatabaseManager:
     def reset_all_prizes(self):
         conn = sqlite3.connect(self.database)
         with conn:
-            conn.execute("UPDATE prizes SET used = 0")
+            conn.execute("UPDATE prizes SET used = 0, retry_count = 0")
             conn.commit()
-            print("[INFO] Все призы сброшены (used = 0).")
+            print("[INFO] Все призы сброшены (used = 0, retry_count = 0).")
 
     def get_winners_img(self, user_id):
         conn = sqlite3.connect(self.database)
@@ -139,6 +163,47 @@ class DatabaseManager:
                 WHERE user_id = ?
             ''', (user_id,))
             return cur.fetchall()
+    
+    def get_user_balance(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT balance FROM user_balances WHERE user_id = ?', (user_id,))
+            result = cur.fetchone()
+            return result[0] if result else 0
+
+    def decrement_balance(self, user_id, amount):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            conn.execute('UPDATE user_balances SET balance = balance - ? WHERE user_id = ?', (amount, user_id))
+            conn.commit()
+
+    def increment_balance(self, user_id, amount):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            conn.execute('UPDATE user_balances SET balance = balance + ? WHERE user_id = ?', (amount, user_id))
+            conn.execute('INSERT OR IGNORE INTO user_balances (user_id, balance) VALUES (?, ?)', (user_id, amount))
+            conn.commit()
+
+    def is_admin(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cur = conn.cursor()
+            cur.execute('SELECT * FROM admins WHERE user_id = ?', (user_id,))
+            return bool(cur.fetchone())
+
+    def add_admin(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            conn.execute('INSERT OR IGNORE INTO admins (user_id) VALUES (?)', (user_id,))
+            conn.commit()
+
+    def remove_admin(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            conn.execute('DELETE FROM admins WHERE user_id = ?', (user_id,))
+            conn.commit()
+
 
 def create_collage(image_paths):
     images = []
